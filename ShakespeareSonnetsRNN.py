@@ -1,3 +1,22 @@
+"""
+========================================
+This code trains a local Recurrent Neural Network model for text generation and exports detailed
+training logs to a file. The log file includes:
+
+	- Hyperparameters and dataset details
+	- System information (CPU, machine, OS, and battery/power details)
+	- Timestamps and duration for each epoch
+	- Epoch-wise loss values and generated sample texts
+
+Usage:
+	Ensure you have the required modules installed:
+		- numpy
+		- psutil
+	Then, import this script in your project or run it directly after setting up your
+	RNN model and training data (X, y, char_to_idx, idx_to_char).
+========================================
+"""
+
 import numpy as np
 import time
 import platform
@@ -367,11 +386,11 @@ try:
     
     # creating and traing RNN model
     input_size = len(char_to_idx)
-    hidden_size = 15
+    hidden_size = 5
     output_size = len(char_to_idx)
     rnn = SimpleRNN(input_size, hidden_size, output_size, learning_rate=0.01)
     
-    train_rnn_export(rnn, X, y, char_to_idx, idx_to_char, epochs=100, batch_size=4, print_every=1)
+    train_rnn_export(rnn, X, y, char_to_idx, idx_to_char, epochs=3, batch_size=1, print_every=1)
     
 except Exception as e:
     print(f"Error processing data: {str(e)}")
