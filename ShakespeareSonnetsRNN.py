@@ -1,4 +1,7 @@
 import numpy as np
+import time
+import platform
+import psutil
 
 class SimpleRNN:
     def __init__(self, input_size, hidden_size, output_size, learning_rate=0.01):
@@ -133,7 +136,7 @@ class SimpleRNN:
         e_x = np.exp(x_shifted)
         return e_x / np.sum(e_x)
 
-    def sample(self, z, seed_char, char_to_idx, idx_to_char, length=100, temperature=0.97):
+    def sample(self, z, seed_char, char_to_idx, idx_to_char, length=100, temperature=1.00):
         """
         Generate text starting with seed_char.
         
@@ -216,53 +219,106 @@ def create_training_sequences(text, char_to_idx, seq_length=25):
     
     return X, y
 
-def train_rnn(rnn, X, y, char_to_idx, idx_to_char, epochs=50, batch_size=32, print_every=10):
-    """
-    Train the RNN model.
+def train_rnn_export(rnn, X, y, char_to_idx, idx_to_char, epochs=50, batch_size=32, print_every=10, export_file="results.txt"):
+	"""
+	Train the RNN and export training details to a log file.
+	
+	The log file will contain:
+		- The hyperparameters used
+		- CPU and power information
+		- The training start time
+		- Epoch number, average loss, and duration per epoch
+		- A generated text sample at intervals defined by print_every
+	
+	Args:
+		rnn: SimpleRNN instance.
+		X: Training sequences.
+		y: Target characters.
+		char_to_idx: Character-to-index mapping.
+		idx_to_char: Index-to-character mapping.
+		epochs: Number of epochs to train.
+		batch_size: Batch size for training.
+		print_every: Interval (in epochs) at which to output a sample.
+		export_file: Filename for exporting the log.
+	"""
+	n_samples = len(X)
+	
+	# Retrieve system information
+	start_time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+	cpu_info = platform.processor() or "Unknown CPU"
+	machine_info = platform.machine() or "Unknown Machine"
+	system_info = platform.system() or "Unknown System"
+	
+	try:
+		battery = psutil.sensors_battery()
+		if battery:
+			battery_info = f"{battery.percent}% {'(Plugged in)' if battery.power_plugged else '(Not plugged in)'}"
+		else:
+			battery_info = "Battery info not available"
+	except Exception as e:
+		battery_info = f"Battery info retrieval error: {str(e)}"
+	
+	# Open log file for writing
+	with open(export_file, "w", encoding="utf-8") as log_file:
+		# Log hyperparameters and system information
+		log_file.write("=== Training Log ===\n")
+		log_file.write(f"Training start time: {start_time_str}\n")
+		log_file.write(f"CPU: {cpu_info}, Machine: {machine_info}, System: {system_info}\n")
+		log_file.write(f"Battery/Power Info: {battery_info}\n\n")
+		
+		log_file.write("Hyperparameters:\n")
+		log_file.write(f"Sequence length: {X.shape[1]}\n")
+		log_file.write(f"Input size (vocabulary size): {rnn.Wx.shape[1]}\n")
+		log_file.write(f"Hidden size: {rnn.hidden_size}\n")
+		log_file.write(f"Output size (vocabulary size): {rnn.Wy.shape[0]}\n")
+		log_file.write(f"Learning rate: {rnn.learning_rate}\n")
+		log_file.write(f"Epochs: {epochs}\n")
+		log_file.write(f"Batch size: {batch_size}\n")
+		log_file.write(f"Total training sequences: {n_samples}\n\n")
+		
+		log_file.write("Epoch Logs:\n")
+		
+		for epoch in range(epochs):
+			epoch_start = time.time()
+			total_loss = 0
+			indices = np.random.permutation(n_samples)
+			
+			for start_idx in range(0, n_samples, batch_size):
+				batch_indices = indices[start_idx:start_idx + batch_size]
+				z = np.zeros((rnn.hidden_size, 1))
+				batch_loss = 0
+				
+				for idx in batch_indices:
+					inputs = X[idx]
+					target = y[idx]
+					
+					# Forward pass
+					o, z = rnn.forward(inputs, z)
+					loss = -np.sum(target.reshape(-1, 1) * np.log(o + 1e-10))
+					batch_loss += loss
+					
+					# Backward pass
+					rnn.backward(target)
+				
+				total_loss += batch_loss
+			
+			avg_loss = total_loss / n_samples
+			epoch_duration = time.time() - epoch_start
+			current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+			epoch_log = f"Epoch {epoch}, Loss: {avg_loss:.4f}, Duration: {epoch_duration:.2f} sec, Timestamp: {current_time}\n"
+			log_file.write(epoch_log)
+			print(epoch_log.strip())
+			
+			if epoch % print_every == 0:
+				# Generate a sample using the current state of the model
+				z_sample = np.zeros((rnn.hidden_size, 1))
+				sample_text = rnn.sample(z_sample, 'T', char_to_idx, idx_to_char, length=100)
+				sample_log = f"Sample text at Epoch {epoch}:\n{sample_text}\n\n"
+				log_file.write(sample_log)
+				print(sample_log)
+				
+	print(f"Training log exported to {export_file}")
     
-    Args:
-        rnn: SimpleRNN instance
-        X: Training sequences
-        y: Target characters
-        char_to_idx: Dictionary mapping characters to indices
-        idx_to_char: Dictionary mapping indices to characters
-        epochs: Number of training epochs
-        batch_size: Size of mini-batches
-        print_every: How often to print progress and generate samples
-    """
-    n_samples = len(X)
-    
-    for epoch in range(epochs):
-        total_loss = 0
-        indices = np.random.permutation(n_samples)
-        
-        for start_idx in range(0, n_samples, batch_size):
-            batch_indices = indices[start_idx:start_idx + batch_size]
-            z = np.zeros((rnn.hidden_size, 1))
-            
-            batch_loss = 0
-            for idx in batch_indices:
-                inputs = X[idx]
-                target = y[idx]
-                
-                # Forward pass
-                o, z = rnn.forward(inputs, z)
-                loss = -np.sum(target.reshape(-1, 1) * np.log(o + 1e-10))
-                batch_loss += loss
-                
-                # Backward pass
-                rnn.backward(target)
-            
-            total_loss += batch_loss
-        
-        if epoch % print_every == 0:
-            avg_loss = total_loss / n_samples
-            print(f'Epoch {epoch}, Loss: {avg_loss:.4f}')
-            # Generate sample text
-            z = np.zeros((rnn.hidden_size, 1))
-            sample_text = rnn.sample(z, 'T', char_to_idx, idx_to_char, length=100)
-            print(f'Sample:\n{sample_text}\n')
-
 def load_data(filename):
     """
     Load text data from file with error handling.
@@ -291,7 +347,7 @@ def load_data(filename):
 # Test the data loading and processing pipeline
 try:
     # Load the sonnets
-    text = load_data('sonnets_updated.txt')
+    text = load_data('sonnets_sample.txt')
     print(f"Successfully loaded {len(text)} characters")
     
     # Create character mappings
@@ -299,7 +355,7 @@ try:
     print(f"Vocabulary size: {len(chars)} unique characters")
     
     # Create training sequences
-    X, y = create_training_sequences(text, char_to_idx, seq_length=25)
+    X, y = create_training_sequences(text, char_to_idx, seq_length=45)
     print(f"Created {len(X)} training sequences")
     
     # Print a sample sequence and its target
@@ -311,11 +367,11 @@ try:
     
     # creating and traing RNN model
     input_size = len(char_to_idx)
-    hidden_size = 40
+    hidden_size = 15
     output_size = len(char_to_idx)
-    rnn = SimpleRNN(input_size, hidden_size, output_size, learning_rate=0.012)
+    rnn = SimpleRNN(input_size, hidden_size, output_size, learning_rate=0.01)
     
-    train_rnn(rnn, X, y, char_to_idx, idx_to_char, epochs=100, batch_size=8, print_every=1)
+    train_rnn_export(rnn, X, y, char_to_idx, idx_to_char, epochs=100, batch_size=4, print_every=1)
     
 except Exception as e:
     print(f"Error processing data: {str(e)}")
